@@ -1,12 +1,8 @@
 import sqlite3
-import hashlib
+import getpass
 from datetime import datetime
-import click
-import shutil
+'''import shutil
 from colorama import init, Fore
-current_user_id = None
-# Initialize colorama
-init(autoreset=True)
 def success_message(message):
     print(Fore.LIGHTGREEN_EX + message)
 
@@ -17,163 +13,150 @@ def warn_message(message):
     print(Fore.YELLOW + message)
 
 def exists_message(message):
-    print(Fore.MAGENTA + message)
-# Create the tables for users, transactions, and budgets
-def create_tables():
+    print(Fore.MAGENTA + message)'''
+# Database setup
+def setup_database():
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            amount REAL,
-            type TEXT,
-            category TEXT,
-            date TEXT,
-            description TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS budgets (
-            user_id INTEGER,
-            category TEXT,
-            amount REAL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    ''')
-
+    
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT UNIQUE,
+                      password TEXT
+                      )''')
+    
+    cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      amount REAL,
+                      category TEXT,
+                      type TEXT,
+                      date TEXT,
+                      FOREIGN KEY(user_id) REFERENCES users(id)
+                      )''')
+    
+    cursor.execute('''CREATE TABLE IF NOT EXISTS budgets (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      category TEXT,
+                      amount REAL,
+                      FOREIGN KEY(user_id) REFERENCES users(id)
+                      )''')
+    
     conn.commit()
     conn.close()
 
-# Hash password function
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+# User registration
+def register():
+    username = input("Enter a username: ")
+    password = getpass.getpass("Enter a password: ")
 
-# Register a new user
-def register_user(username, password):
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
-    hashed_password = hash_password(password)
+
     try:
-        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
         conn.commit()
-        success_message("User registered successfully!")
+        print("Registration successful!")
     except sqlite3.IntegrityError:
-        exists_message("Username already exists!")
-    conn.close()
+        print("Username already exists. Try another.")
+    finally:
+        conn.close()
 
-# Login user
-def login_user(username, password):
+# User login
+def login():
+    username = input("Enter your username: ")
+    password = getpass.getpass("Enter your password: ")
+
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
-    hashed_password = hash_password(password)
-    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, hashed_password))
+
+    cursor.execute("SELECT id FROM users WHERE username = ? AND password = ?", (username, password))
     user = cursor.fetchone()
     conn.close()
+
     if user:
-        return user[0]  # Return user ID
+        print("Login successful!")
+        return user[0]
     else:
+        print("Invalid credentials.")
         return None
 
-# Add a transaction (income/expense)
-def add_transaction(user_id, amount, trans_type, category, description=""):
+# Add transaction
+def add_transaction(user_id):
+    amount = float(input("Enter the amount: "))
+    category = input("Enter the category (e.g., Food, Rent, Salary): ")
+    transaction_type = input("Enter the type (income/expense): ").lower()
+    date = datetime.now().strftime("%Y-%m-%d")
+
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
-    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute('''
-        INSERT INTO transactions (user_id, amount, type, category, date, description)
-        VALUES (?, ?, ?, ?, ?, ?)''', (user_id, amount, trans_type, category, date, description))
+
+    cursor.execute("INSERT INTO transactions (user_id, amount, category, type, date) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, amount, category, transaction_type, date))
     conn.commit()
     conn.close()
+    print("Transaction added successfully!")
 
 # Generate financial report
-def generate_report(user_id, start_date, end_date):
+def generate_report(user_id):
     conn = sqlite3.connect('finance.db')
     cursor = conn.cursor()
 
-    cursor.execute('''
-        SELECT SUM(amount) FROM transactions
-        WHERE user_id = ? AND type = 'income' AND date BETWEEN ? AND ?
-    ''', (user_id, start_date, end_date))
+    cursor.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type = 'income'", (user_id,))
     total_income = cursor.fetchone()[0] or 0
 
-    cursor.execute('''
-        SELECT SUM(amount) FROM transactions
-        WHERE user_id = ? AND type = 'expense' AND date BETWEEN ? AND ?
-    ''', (user_id, start_date, end_date))
+    cursor.execute("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type = 'expense'", (user_id,))
     total_expenses = cursor.fetchone()[0] or 0
 
     savings = total_income - total_expenses
-    print(f"Income: {total_income}, Expenses: {total_expenses}, Savings: {savings}")
+
+    print(f"Total Income: Rs.{total_income:.2f}")
+    print(f"Total Expenses: Rs.{total_expenses:.2f}")
+    print(f"Savings: Rs.{savings:.2f}")
+
     conn.close()
 
-# Click command-line interface
-@click.group()
-def cli():
-    pass
+# Main menu
+def main():
+    setup_database()
 
-# Register user command
-@click.command()
-@click.option('--username', prompt='Username', help='Username for registration')
-@click.option('--password', prompt='Password', hide_input=True, help='Password for registration')
-def register(username, password):
-    register_user(username, password)
+    print("Welcome to the Personal Finance Manager")
 
-# Login user command
-@click.command()
-@click.option('--username', prompt='Username', help='Username for login')
-@click.option('--password', prompt='Password', hide_input=True, help='Password for login')
-def login(username, password):
-    global current_user_id
-    current_user_id = login_user(username, password)
-    if current_user_id:
-        success_message("Login successful.")
-    else:
-        print("Login failed. Invalid credentials.")
+    while True:
+        print("\nMenu:")
+        print("1. Register")
+        print("2. Login")
+        print("3. Exit")
 
-# Add transaction command
-@click.command()
-@click.option('--amount', prompt='Amount', type=float, help='Amount for the transaction')
-@click.option('--trans_type', prompt='Type (income/expense)', type=click.Choice(['income', 'expense']), help='Transaction type')
-@click.option('--category', prompt='Category', help='Category of the transaction')
-@click.option('--description', prompt='Description', default='', help='Description of the transaction')
-def add(amount, trans_type, category, description):
-    if current_user_id:
-        add_transaction(current_user_id, amount, trans_type, category, description)
-        print(f"{trans_type.capitalize()} added successfully.")
-    else:
-        print("Please login first.")
+        choice = input("Enter your choice: ")
 
-# Generate report command
-@click.command()
-@click.option('--start_date', prompt='Start date (YYYY-MM-DD)', help='Start date for the report')
-@click.option('--end_date', prompt='End date (YYYY-MM-DD)', help='End date for the report')
-def report(start_date, end_date):
-    global current_user_id
-    print(f"Debug: current_user_id = {current_user_id}")
-    if current_user_id:
-        generate_report(current_user_id, start_date, end_date)
-    else:
-        print("Please login first.")
+        if choice == '1':
+            register()
+        elif choice == '2':
+            user_id = login()
+            if user_id:
+                while True:
+                    print("\nUser Menu:")
+                    print("1. Add Transaction")
+                    print("2. Generate Report")
+                    print("3. Logout")
 
-# Add commands to CLI
-cli.add_command(register)
-cli.add_command(login)
-cli.add_command(add)
-cli.add_command(report)
+                    user_choice = input("Enter your choice: ")
 
-if __name__ == '__main__':
-    create_tables()  # Ensure tables are created
-    current_user_id = None
-    cli()
+                    if user_choice == '1':
+                        add_transaction(user_id)
+                    elif user_choice == '2':
+                        generate_report(user_id)
+                    elif user_choice == '3':
+                        break
+                    else:
+                        print("Invalid choice. Try again.")
+        elif choice == '3':
+            print("Goodbye!")
+            break
+        else:
+            print("Invalid choice. Try again.")
+
+if __name__ == "__main__":
+    main()
